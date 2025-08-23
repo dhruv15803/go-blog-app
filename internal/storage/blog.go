@@ -179,3 +179,166 @@ func (s *Storage) DeleteBlogById(blogId int) error {
 
 	return nil
 }
+
+func (s *Storage) GetBlogTopics(blogId int) ([]Topic, error) {
+	var topics []Topic
+
+	query := `SELECT id, topic_name, created_at, updated_at 
+	FROM topics WHERE id IN (SELECT topic_id FROM blog_topics WHERE blog_id=$1)`
+
+	rows, err := s.db.Queryx(query, blogId)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var topic Topic
+
+		if err := rows.StructScan(&topic); err != nil {
+			return nil, err
+		}
+
+		topics = append(topics, topic)
+	}
+
+	return topics, nil
+}
+
+// update blog status from 'draft' to 'published' and add additional topics to blog
+func (s *Storage) PublishBlogAndAddTopics(blogId int, topicIds []int) (*BlogWithUserAndTopics, error) {
+
+	var updatedBlog BlogWithUserAndTopics
+
+	tx, err := s.db.Beginx()
+	if err != nil {
+		return nil, err
+	}
+	var rollBackErr error
+	defer func() {
+		if rollBackErr != nil {
+			tx.Rollback()
+		}
+	}()
+
+	var blog Blog
+	// update blog status to 'published' query
+	updateBlogStatusQuery := `UPDATE blogs SET blog_status=$1,published_at=$2 WHERE id=$3 
+RETURNING id,blog_title,blog_description,blog_content,blog_thumbnail,blog_status,blog_author_id,published_at,
+blog_created_at,blog_updated_at`
+	//	add topics to blog
+
+	if err := tx.QueryRowx(updateBlogStatusQuery, BlogStatusPublished, time.Now(), blogId).StructScan(&blog); err != nil {
+		rollBackErr = err
+		return nil, rollBackErr
+	}
+
+	insertTopicQuery := `INSERT INTO blog_topics(blog_id,topic_id) VALUES($1,$2)`
+
+	// these are additional topicIds (not necessarily all blog topicIds)
+	for _, topicId := range topicIds {
+		_, err := tx.Exec(insertTopicQuery, blog.Id, topicId)
+		if err != nil {
+			rollBackErr = err
+			return nil, rollBackErr
+		}
+	}
+
+	var topics []Topic
+	// get blog topics now (all topics , existing + added)
+	blogTopicsQuery := `SELECT id,topic_name,created_at,updated_at 
+	FROM topics WHERE id IN (SELECT topic_id FROM blog_topics WHERE blog_id=$1)`
+
+	topicRows, err := tx.Queryx(blogTopicsQuery, blog.Id)
+	if err != nil {
+		rollBackErr = err
+		return nil, rollBackErr
+	}
+	defer topicRows.Close()
+
+	for topicRows.Next() {
+		var topic Topic
+
+		if err := topicRows.StructScan(&topic); err != nil {
+			rollBackErr = err
+			return nil, rollBackErr
+		}
+
+		topics = append(topics, topic)
+	}
+
+	var blogAuthor User
+	blogAuthorQuery := `SELECT id,email,username,password,name,profile_img,
+    is_verified,role,created_at,updated_at FROM users WHERE id=$1`
+
+	if err := tx.QueryRowx(blogAuthorQuery, blog.BlogAuthorId).StructScan(&blogAuthor); err != nil {
+		rollBackErr = err
+		return nil, rollBackErr
+	}
+
+	if err = tx.Commit(); err != nil {
+		rollBackErr = err
+		return nil, rollBackErr
+	}
+
+	updatedBlog.Blog = blog
+	updatedBlog.BlogTopics = topics
+	updatedBlog.BlogAuthor = blogAuthor
+
+	return &updatedBlog, nil
+}
+
+func (s *Storage) UpdateBlogStatus(blogId int, blogStatus BlogStatus) (*BlogWithUserAndTopics, error) {
+
+	var updatedBlog BlogWithUserAndTopics
+
+	var blog Blog
+	query := `UPDATE blogs SET blog_status=$1,published_at=$2 WHERE id=$3 
+	RETURNING id,blog_title,blog_description,blog_content,blog_thumbnail,blog_status,blog_author_id,published_at,
+	blog_created_at,blog_updated_at`
+
+	var publishedAtArg any
+	if blogStatus == BlogStatusPublished {
+		publishedAtArg = time.Now()
+	} else {
+		publishedAtArg = nil
+	}
+
+	if err := s.db.QueryRowx(query, blogStatus, publishedAtArg, blogId).StructScan(&blog); err != nil {
+		return nil, err
+	}
+
+	var topics []Topic
+
+	topicsQuery := `SELECT id,topic_name,created_at,updated_at 
+	FROM topics WHERE id IN (SELECT topic_id FROM blog_topics WHERE blog_id=$1)`
+	topicRows, err := s.db.Queryx(topicsQuery, blog.Id)
+	if err != nil {
+		return nil, err
+	}
+	defer topicRows.Close()
+
+	for topicRows.Next() {
+		var topic Topic
+
+		if err := topicRows.StructScan(&topic); err != nil {
+			return nil, err
+		}
+
+		topics = append(topics, topic)
+	}
+
+	var blogAuthor User
+	blogAuthorQuery := `SELECT id, email, username, password, name, profile_img, is_verified, role, created_at, updated_at 
+	FROM users WHERE id=$1`
+
+	if err := s.db.QueryRowx(blogAuthorQuery, blog.BlogAuthorId).StructScan(&blogAuthor); err != nil {
+		return nil, err
+	}
+
+	updatedBlog.Blog = blog
+	updatedBlog.BlogTopics = topics
+	updatedBlog.BlogAuthor = blogAuthor
+
+	return &updatedBlog, nil
+}

@@ -2,6 +2,7 @@ package storage
 
 import (
 	"errors"
+	"time"
 )
 
 type Topic struct {
@@ -74,10 +75,10 @@ func (s *Storage) UpdateTopicNameById(topicId int, topicName string) (*Topic, er
 
 	var topic Topic
 
-	query := `UPDATE topics SET topic_name=$1 WHERE id=$2 
+	query := `UPDATE topics SET topic_name=$1,updated_at=$2 WHERE id=$3 
 RETURNING id,topic_name,created_at,updated_at`
 
-	if err := s.db.QueryRowx(query, topicName, topicId).StructScan(&topic); err != nil {
+	if err := s.db.QueryRowx(query, topicName, time.Now(), topicId).StructScan(&topic); err != nil {
 		return nil, err
 	}
 
