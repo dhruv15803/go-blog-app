@@ -347,6 +347,164 @@ func (h *Handler) UpdateBlogStatusHandler(w http.ResponseWriter, r *http.Request
 	}
 }
 
+func (h *Handler) LikeBlogHandler(w http.ResponseWriter, r *http.Request) {
+
+	userId, ok := r.Context().Value(AuthUserId).(int)
+	if !ok {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	user, err := h.storage.GetUserById(userId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "user does not exist", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	blogId, err := strconv.ParseInt(chi.URLParam(r, "blogId"), 10, 64)
+	if err != nil {
+		writeJSONError(w, "invalid request param blogId", http.StatusBadRequest)
+		return
+	}
+	blog, err := h.storage.GetBlogById(int(blogId))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "blog does not exist", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	//	check if user already liked blog
+	// if like exists , remove like else create like
+	existingLike, err := h.storage.GetBlogLike(user.Id, blog.Id)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if existingLike == nil {
+		//	create a blog like
+		blogLike, err := h.storage.CreateBlogLike(user.Id, blog.Id)
+		if err != nil {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		type Response struct {
+			Success  bool             `json:"success"`
+			Message  string           `json:"message"`
+			BlogLike storage.BlogLike `json:"blog_like"`
+		}
+
+		if err := writeJSON(w, Response{Success: true, Message: "liked blog", BlogLike: *blogLike}, http.StatusCreated); err != nil {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	} else {
+
+		//	remove blog like
+		if err := h.storage.RemoveBlogLike(existingLike.LikedById, existingLike.LikedBlogId); err != nil {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		type Response struct {
+			Success bool   `json:"success"`
+			Message string `json:"message"`
+		}
+
+		if err := writeJSON(w, Response{Success: true, Message: "removed blog like"}, http.StatusOK); err != nil {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
+func (h *Handler) BookmarkBlogHandler(w http.ResponseWriter, r *http.Request) {
+	userId, ok := r.Context().Value(AuthUserId).(int)
+	if !ok {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	user, err := h.storage.GetUserById(userId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "user does not exist", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	blogId, err := strconv.ParseInt(chi.URLParam(r, "blogId"), 10, 64)
+	if err != nil {
+		writeJSONError(w, "invalid request param blogId", http.StatusBadRequest)
+		return
+	}
+	blog, err := h.storage.GetBlogById(int(blogId))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "blog does not exist", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	existingBookmark, err := h.storage.GetBlogBookmark(user.Id, blog.Id)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if existingBookmark == nil {
+
+		blogBookmark, err := h.storage.CreateBlogBookmark(user.Id, blog.Id)
+		if err != nil {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		type Response struct {
+			Success      bool                 `json:"success"`
+			Message      string               `json:"message"`
+			BlogBookmark storage.BlogBookmark `json:"blog_bookmark"`
+		}
+
+		if err := writeJSON(w, Response{Success: true, Message: "bookmarked blog", BlogBookmark: *blogBookmark}, http.StatusCreated); err != nil {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+
+		}
+
+	} else {
+
+		if err := h.storage.RemoveBlogBookmark(existingBookmark.BookmarkedById, existingBookmark.BookmarkedBlogId); err != nil {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		type Response struct {
+			Success bool   `json:"success"`
+			Message string `json:"message"`
+		}
+
+		if err := writeJSON(w, Response{Success: true, Message: "removed blog bookmark"}, http.StatusOK); err != nil {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		}
+	}
+}
+
 func isArrayContainElement(arr []int, target int) bool {
 
 	for _, val := range arr {

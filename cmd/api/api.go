@@ -44,6 +44,8 @@ func (s *server) mount() *chi.Mux {
 			r.Post("/", s.handler.CreateBlogHandler)
 			r.Delete("/{blogId}", s.handler.DeleteBlogHandler)
 			r.Patch("/{blogId}/status", s.handler.UpdateBlogStatusHandler)
+			r.Post("/{blogId}/like", s.handler.LikeBlogHandler)
+			r.Post("/{blogId}/bookmark", s.handler.BookmarkBlogHandler)
 		})
 
 		r.Route("/topic", func(r chi.Router) {
