@@ -200,3 +200,58 @@ func (h *Handler) LikeBlogCommentHandler(w http.ResponseWriter, r *http.Request)
 		}
 	}
 }
+
+func (h *Handler) DeleteBlogCommentHandler(w http.ResponseWriter, r *http.Request) {
+	userId, ok := r.Context().Value(AuthUserId).(int)
+	if !ok {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	user, err := h.storage.GetUserById(userId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "user does not exist", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	blogCommentId, err := strconv.ParseInt(chi.URLParam(r, "blogCommentId"), 10, 64)
+	if err != nil {
+		writeJSONError(w, "invalid request param blogCommentId", http.StatusBadRequest)
+		return
+	}
+
+	blogComment, err := h.storage.GetBlogCommentById(int(blogCommentId))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "blog comment not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if user.Id != blogComment.CommentAuthorId {
+		writeJSONError(w, "unauthorized to delete blog comment", http.StatusUnauthorized)
+		return
+	}
+
+	if err := h.storage.DeleteBlogCommentById(blogComment.Id); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	type Response struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+
+	if err := writeJSON(w, Response{Success: true, Message: "deleted blog comment"}, http.StatusOK); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+	}
+}

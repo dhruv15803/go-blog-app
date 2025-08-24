@@ -51,6 +51,7 @@ func (s *server) mount() *chi.Mux {
 		r.Route("/blog-comment", func(r chi.Router) {
 			r.Use(s.handler.AuthMiddleware)
 			r.Post("/", s.handler.CreateBlogCommentHandler)
+			r.Delete("/{blogCommentId}", s.handler.DeleteBlogCommentHandler)
 			r.Post("/{blogCommentId}/like", s.handler.LikeBlogCommentHandler)
 		})
 

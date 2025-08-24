@@ -1,5 +1,7 @@
 package storage
 
+import "errors"
+
 type BlogComment struct {
 	Id               int     `db:"id" json:"id"`
 	BlogComment      string  `db:"blog_comment" json:"blog_comment"`
@@ -79,4 +81,26 @@ func (s *Storage) CreateChildBlogComment(blogCommentContent string, commentAutho
 	blogCommentWithAuthor.BlogComment = blogComment
 	blogCommentWithAuthor.BlogCommentAuthor = blogCommentAuthor
 	return &blogCommentWithAuthor, nil
+}
+
+func (s *Storage) DeleteBlogCommentById(id int) error {
+
+	query := `DELETE FROM blog_comments WHERE id=$1`
+
+	result, err := s.db.Exec(query, id)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected != 1 {
+		return errors.New("blog comment not deleted")
+	}
+
+	return nil
+
 }
