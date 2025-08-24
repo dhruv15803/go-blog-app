@@ -48,6 +48,11 @@ func (s *server) mount() *chi.Mux {
 			r.Post("/{blogId}/bookmark", s.handler.BookmarkBlogHandler)
 		})
 
+		r.Route("/blog-comment", func(r chi.Router) {
+			r.Use(s.handler.AuthMiddleware)
+			r.Post("/", s.handler.CreateBlogCommentHandler)
+		})
+
 		r.Route("/topic", func(r chi.Router) {
 			//	add , delete and edit blog topics (admin routes)
 			r.Get("/topics", s.handler.GetTopicsHandler)
