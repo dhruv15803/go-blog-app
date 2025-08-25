@@ -81,7 +81,6 @@ func (h *Handler) CreateBlogHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(blogTopicIds) != 0 {
-
 		newBlog, err := h.storage.CreateBlogWithTopics(blogTitle, blogDescription, blogContentJson, blogThumbnailUrl, blogStatus, user.Id, blogTopicIds)
 		if err != nil {
 			log.Printf("failed to create blog with topics: %v\n", err)

@@ -49,10 +49,15 @@ func (s *server) mount() *chi.Mux {
 		})
 
 		r.Route("/blog-comment", func(r chi.Router) {
-			r.Use(s.handler.AuthMiddleware)
-			r.Post("/", s.handler.CreateBlogCommentHandler)
-			r.Delete("/{blogCommentId}", s.handler.DeleteBlogCommentHandler)
-			r.Post("/{blogCommentId}/like", s.handler.LikeBlogCommentHandler)
+			r.Group(func(r chi.Router) {
+				r.Use(s.handler.AuthMiddleware)
+				r.Post("/", s.handler.CreateBlogCommentHandler)
+				r.Delete("/{blogCommentId}", s.handler.DeleteBlogCommentHandler)
+				r.Put("/{blogCommentId}", s.handler.UpdateBlogCommentHandler)
+				r.Post("/{blogCommentId}/like", s.handler.LikeBlogCommentHandler)
+			})
+			r.Get("/{blogId}/blog-comments", s.handler.GetBlogCommentsHandler)
+			r.Get("/{blogCommentId}/comments", s.handler.GetBlogCommentCommentsHandler)
 		})
 
 		r.Route("/topic", func(r chi.Router) {
