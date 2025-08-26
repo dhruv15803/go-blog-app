@@ -10,9 +10,12 @@ type BlogStatus string
 
 // 'draft','published','archived'
 const (
-	BlogStatusDraft     BlogStatus = "draft"
-	BlogStatusPublished BlogStatus = "published"
-	BlogStatusArchived  BlogStatus = "archived"
+	BlogStatusDraft      BlogStatus = "draft"
+	BlogStatusPublished  BlogStatus = "published"
+	BlogStatusArchived   BlogStatus = "archived"
+	BlogLikesCountWt                = 0.3
+	BlogCommentsCountWt             = 0.5
+	BlogBookmarksCountWt            = 0.2
 )
 
 type Blog struct {
@@ -37,6 +40,15 @@ type BlogWithUserAndTopics struct {
 	Blog
 	BlogAuthor User    `json:"blog_author"`
 	BlogTopics []Topic `json:"blog_topics"`
+}
+
+type BlogWithMetaData struct {
+	Blog
+	BlogAuthor         User    `json:"blog_author"`
+	BlogTopics         []Topic `json:"blog_topics"`
+	BlogLikesCount     int     `json:"blog_likes_count"`
+	BlogCommentsCount  int     `json:"blog_comments_count"`
+	BlogBookmarksCount int     `json:"blog_bookmarks_count"`
 }
 
 func (s *Storage) CreateBlogWithTopics(blogTitle string, blogDescription string, blogContent json.RawMessage, blogThumbnail string, blogStatus BlogStatus, blogAuthorId int, topicIds []int) (*BlogWithUserAndTopics, error) {
@@ -341,4 +353,124 @@ func (s *Storage) UpdateBlogStatus(blogId int, blogStatus BlogStatus) (*BlogWith
 	updatedBlog.BlogAuthor = blogAuthor
 
 	return &updatedBlog, nil
+}
+
+func (s *Storage) GetBlogsByTopic(topicId int, skip int, limit int) ([]BlogWithMetaData, error) {
+
+	var blogs []BlogWithMetaData
+
+	query := `SELECT
+  *,
+  (
+    (
+      $4::numeric * blog_likes_count + $5::numeric * blog_comments_count + $6::numeric * blog_bookmarks_count
+    ) / POWER(
+      EXTRACT(
+        EPOCH
+        FROM
+          (NOW() - published_at)
+      ) / 60,
+      2
+    )
+  ) AS activity_score
+FROM
+  (
+    SELECT
+      b.id,
+      b.blog_title,
+      b.blog_description,
+      b.blog_content,
+      b.blog_thumbnail,
+      b.blog_status,
+      b.blog_author_id,
+      b.blog_created_at,
+      b.published_at,
+      b.blog_updated_at,
+      u.id,
+      u.email,
+      u.username,
+      u.password,
+      u.name,
+      u.profile_img,
+      u.is_verified,
+      u.role,
+      u.created_at,
+      u.updated_at,
+      COUNT(DISTINCT bl.liked_by_id) AS blog_likes_count,
+      COUNT(DISTINCT bb.bookmarked_by_id) AS blog_bookmarks_count,
+      COUNT(DISTINCT bc.id) AS blog_comments_count
+    FROM
+      blogs AS b
+      INNER JOIN users AS u ON b.blog_author_id = u.id
+      LEFT JOIN blog_likes AS bl ON b.id = bl.liked_blog_id
+      LEFT JOIN blog_bookmarks AS bb ON b.id = bb.bookmarked_blog_id
+      LEFT JOIN blog_comments AS bc ON b.id = bc.blog_id
+      AND bc.parent_comment_id IS NULL
+    WHERE
+      b.id IN (SELECT blog_id FROM blog_topics WHERE topic_id = $1) AND b.blog_status = 'published'
+    GROUP BY b.id,u.id
+  )
+ORDER BY
+  activity_score DESC
+LIMIT $2 OFFSET $3`
+
+	rows, err := s.db.Queryx(query, topicId, limit, skip, BlogLikesCountWt, BlogCommentsCountWt, BlogBookmarksCountWt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+
+		var blog BlogWithMetaData
+		var activityScore float64
+
+		if err := rows.Scan(&blog.Id, &blog.BlogTitle, &blog.BlogDescription, &blog.BlogContent,
+			&blog.BlogThumbnail, &blog.BlogStatus, &blog.BlogAuthorId, &blog.PublishedAt, &blog.BlogCreatedAt, &blog.BlogUpdatedAt,
+			&blog.BlogAuthor.Id, &blog.BlogAuthor.Email, &blog.BlogAuthor.Username, &blog.BlogAuthor.Password,
+			&blog.BlogAuthor.Name, &blog.BlogAuthor.ProfileImg, &blog.BlogAuthor.IsVerified, &blog.BlogAuthor.Role,
+			&blog.BlogAuthor.CreatedAt, &blog.BlogAuthor.UpdatedAt, &blog.BlogLikesCount, &blog.BlogBookmarksCount, &blog.BlogCommentsCount, &activityScore); err != nil {
+			return nil, err
+		}
+
+		// each blog can have multiple topics
+		var topics []Topic
+		topicsQuery := `SELECT id, topic_name, created_at, updated_at 
+		FROM topics WHERE id IN (SELECT topic_id FROM blog_topics WHERE blog_id=$1)`
+
+		topicRows, err := s.db.Queryx(topicsQuery, blog.Id)
+		if err != nil {
+			return nil, err
+		}
+		defer topicRows.Close()
+
+		for topicRows.Next() {
+
+			var topic Topic
+
+			if err := topicRows.StructScan(&topic); err != nil {
+				return nil, err
+			}
+
+			topics = append(topics, topic)
+		}
+
+		blog.BlogTopics = topics
+		blogs = append(blogs, blog)
+	}
+
+	return blogs, nil
+}
+
+func (s *Storage) GetBlogsByTopicCount(topicId int) (int, error) {
+
+	var totalBlogsCount int
+
+	query := `SELECT COUNT(id) FROM blogs WHERE id IN (SELECT blog_id FROM blog_topics WHERE topic_id=$1) AND blog_status='published'`
+
+	if err := s.db.QueryRowx(query, topicId).Scan(&totalBlogsCount); err != nil {
+		return -1, err
+	}
+
+	return totalBlogsCount, nil
 }

@@ -40,12 +40,16 @@ func (s *server) mount() *chi.Mux {
 		})
 
 		r.Route("/blog", func(r chi.Router) {
-			r.Use(s.handler.AuthMiddleware)
-			r.Post("/", s.handler.CreateBlogHandler)
-			r.Delete("/{blogId}", s.handler.DeleteBlogHandler)
-			r.Patch("/{blogId}/status", s.handler.UpdateBlogStatusHandler)
-			r.Post("/{blogId}/like", s.handler.LikeBlogHandler)
-			r.Post("/{blogId}/bookmark", s.handler.BookmarkBlogHandler)
+			r.Group(func(r chi.Router) {
+				r.Use(s.handler.AuthMiddleware)
+				r.Post("/", s.handler.CreateBlogHandler)
+				r.Delete("/{blogId}", s.handler.DeleteBlogHandler)
+				r.Patch("/{blogId}/status", s.handler.UpdateBlogStatusHandler)
+				r.Post("/{blogId}/like", s.handler.LikeBlogHandler)
+				r.Post("/{blogId}/bookmark", s.handler.BookmarkBlogHandler)
+			})
+			//	get blog posts feed for a topic handler - unauthenticated
+			r.Get("/{topicId}/blogs", s.handler.GetBlogsFeedByTopicHandler)
 		})
 
 		r.Route("/blog-comment", func(r chi.Router) {
@@ -69,6 +73,11 @@ func (s *server) mount() *chi.Mux {
 				r.Post("/", s.handler.CreateTopicHandler)
 				r.Put("/{topicId}", s.handler.UpdateTopicHandler)
 				r.Delete("/{topicId}", s.handler.DeleteTopicHandler)
+			})
+
+			r.Group(func(r chi.Router) {
+				r.Use(s.handler.AuthMiddleware)
+				r.Post("/{topicId}/follow", s.handler.FollowTopicHandler)
 			})
 		})
 	})

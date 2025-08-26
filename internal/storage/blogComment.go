@@ -186,6 +186,7 @@ LIMIT $2 OFFSET $3`
 	defer rows.Close()
 
 	for rows.Next() {
+
 		var blogComment BlogCommentWithMetaData
 
 		if err := rows.Scan(&blogComment.Id, &blogComment.BlogCommentContent, &blogComment.CommentAuthorId,

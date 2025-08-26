@@ -253,3 +253,85 @@ func (h *Handler) GetTopicsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 }
+
+func (h *Handler) FollowTopicHandler(w http.ResponseWriter, r *http.Request) {
+
+	userId, ok := r.Context().Value(AuthUserId).(int)
+	if !ok {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	user, err := h.storage.GetUserById(userId)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "user does not exist", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	topicId, err := strconv.ParseInt(chi.URLParam(r, "topicId"), 10, 64)
+	if err != nil {
+		writeJSONError(w, "invalid request param topicId", http.StatusBadRequest)
+		return
+	}
+
+	topic, err := h.storage.GetTopicById(int(topicId))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "topic not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	existingTopicFollow, err := h.storage.GetTopicFollow(user.Id, topic.Id)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// errors.Is(err,sql.ErrNoRows)
+	if existingTopicFollow == nil {
+
+		//	create follow by user for topic
+
+		topicFollow, err := h.storage.CreateTopicFollow(user.Id, topic.Id)
+		if err != nil {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		type Response struct {
+			Success     bool                `json:"success"`
+			Message     string              `json:"message"`
+			TopicFollow storage.TopicFollow `json:"topic_follow"`
+		}
+
+		if err := writeJSON(w, Response{Success: true, Message: "followed topic", TopicFollow: *topicFollow}, http.StatusCreated); err != nil {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	} else {
+
+		// remove topic follow by user for topic
+		if err := h.storage.RemoveTopicFollow(existingTopicFollow.UserId, existingTopicFollow.TopicId); err != nil {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		type Response struct {
+			Success bool   `json:"success"`
+			Message string `json:"message"`
+		}
+
+		if err := writeJSON(w, Response{Success: true, Message: "removed topic follow"}, http.StatusOK); err != nil {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		}
+	}
+}
