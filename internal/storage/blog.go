@@ -383,8 +383,8 @@ FROM
       b.blog_thumbnail,
       b.blog_status,
       b.blog_author_id,
-      b.blog_created_at,
       b.published_at,
+      b.blog_created_at,
       b.blog_updated_at,
       u.id,
       u.email,
@@ -445,13 +445,10 @@ LIMIT $2 OFFSET $3`
 		defer topicRows.Close()
 
 		for topicRows.Next() {
-
 			var topic Topic
-
 			if err := topicRows.StructScan(&topic); err != nil {
 				return nil, err
 			}
-
 			topics = append(topics, topic)
 		}
 
@@ -469,6 +466,302 @@ func (s *Storage) GetBlogsByTopicCount(topicId int) (int, error) {
 	query := `SELECT COUNT(id) FROM blogs WHERE id IN (SELECT blog_id FROM blog_topics WHERE topic_id=$1) AND blog_status='published'`
 
 	if err := s.db.QueryRowx(query, topicId).Scan(&totalBlogsCount); err != nil {
+		return -1, err
+	}
+
+	return totalBlogsCount, nil
+}
+
+// GetBlogsByTopNFollowedTopics - get blogs by  the top n followed topics (paginated)
+func (s *Storage) GetBlogsByTopNFollowedTopics(n int, skip int, limit int) ([]BlogWithMetaData, error) {
+
+	var blogs []BlogWithMetaData
+
+	query := `SELECT
+  *,
+  (
+    (
+      $4::numeric * blog_likes_count + $5::numeric * blog_comments_count + $6::numeric * blog_bookmarks_count
+    ) / POWER(
+      EXTRACT(
+        EPOCH
+        FROM
+          (NOW() - published_at)
+      ) / 60,
+      2
+    )
+  ) AS activity_score
+FROM
+  (
+    SELECT
+      b.id,
+      b.blog_title,
+      b.blog_description,
+      b.blog_content,
+      b.blog_thumbnail,
+      b.blog_status,
+      b.blog_author_id,
+      b.published_at,
+      b.blog_created_at,
+      b.blog_updated_at,
+      u.id,
+      u.email,
+      u.username,
+      u.password,
+      u.name,
+      u.profile_img,
+      u.is_verified,
+      u.role,
+      u.created_at,
+      u.updated_at,
+      COUNT(DISTINCT bl.liked_by_id) AS blog_likes_count,
+      COUNT(DISTINCT bb.bookmarked_by_id) AS blog_bookmarks_count,
+      COUNT(DISTINCT bc.id) AS blog_comments_count
+    FROM
+      blogs AS b
+      INNER JOIN users AS u ON b.blog_author_id = u.id
+      LEFT JOIN blog_likes AS bl ON b.id = bl.liked_blog_id
+      LEFT JOIN blog_bookmarks AS bb ON b.id = bb.bookmarked_blog_id
+      LEFT JOIN blog_comments AS bc ON b.id = bc.blog_id
+      AND bc.parent_comment_id IS NULL
+    WHERE
+      b.id IN (
+        SELECT
+          DISTINCT(blog_id)
+        FROM
+          blog_topics
+        WHERE
+          topic_id IN (
+            SELECT
+              topic_id
+            FROM
+              (
+                SELECT
+                  COUNT(user_id) AS followers_count,
+                  topic_id
+                FROM
+                  topic_follows
+                GROUP BY
+                  topic_id
+                ORDER BY
+                  followers_count DESC
+                LIMIT
+                  $1
+              )
+          )
+      )
+    GROUP BY b.id, u.id
+  )
+ORDER BY activity_score DESC
+LIMIT $2 OFFSET $3`
+
+	rows, err := s.db.Queryx(query, n, limit, skip, BlogLikesCountWt, BlogCommentsCountWt, BlogBookmarksCountWt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+
+		var blog BlogWithMetaData
+		var activityScore float64
+
+		if err := rows.Scan(&blog.Id, &blog.BlogTitle, &blog.BlogDescription, &blog.BlogContent,
+			&blog.BlogThumbnail, &blog.BlogStatus, &blog.BlogAuthorId, &blog.PublishedAt, &blog.BlogCreatedAt, &blog.BlogUpdatedAt,
+			&blog.BlogAuthor.Id, &blog.BlogAuthor.Email, &blog.BlogAuthor.Username, &blog.BlogAuthor.Password,
+			&blog.BlogAuthor.Name, &blog.BlogAuthor.ProfileImg, &blog.BlogAuthor.IsVerified, &blog.BlogAuthor.Role,
+			&blog.BlogAuthor.CreatedAt, &blog.BlogAuthor.UpdatedAt, &blog.BlogLikesCount, &blog.BlogBookmarksCount, &blog.BlogCommentsCount, &activityScore); err != nil {
+			return nil, err
+		}
+
+		var topics []Topic
+		topicsQuery := `SELECT id,id, topic_name, created_at, updated_at 
+		FROM topics WHERE id IN (SELECT topic_id FROM blog_topics WHERE blog_id=$1)`
+
+		topicRows, err := s.db.Queryx(topicsQuery, blog.Id)
+		if err != nil {
+			return nil, err
+		}
+		defer topicRows.Close()
+
+		for topicRows.Next() {
+			var topic Topic
+			if err := topicRows.StructScan(&topic); err != nil {
+				return nil, err
+			}
+			topics = append(topics, topic)
+		}
+
+		blog.BlogTopics = topics
+		blogs = append(blogs, blog)
+	}
+
+	return blogs, nil
+}
+
+func (s *Storage) GetBlogsByTopNFollowedTopicsCount(n int) (int, error) {
+
+	var totalBlogsCount int
+
+	query := `SELECT COUNT(DISTINCT(blog_id))
+	FROM  blog_topics WHERE topic_id IN (
+    	SELECT
+      		topic_id
+    	FROM (
+        SELECT
+          COUNT(user_id) AS followers_count,
+          topic_id
+        FROM
+          topic_follows
+        GROUP BY
+          topic_id
+        ORDER BY
+          followers_count DESC
+        LIMIT
+          $1
+      )
+  )
+`
+	if err := s.db.QueryRowx(query, n).Scan(&totalBlogsCount); err != nil {
+		return -1, err
+	}
+
+	return totalBlogsCount, nil
+}
+
+func (s *Storage) GetBlogsByUserFollowedTopics(userId int, skip int, limit int) ([]BlogWithMetaData, error) {
+
+	var blogs []BlogWithMetaData
+
+	query := `SELECT
+  *,
+  (
+    (
+      $4::numeric * blog_likes_count + $5::numeric * blog_comments_count + $6::numeric * blog_bookmarks_count
+    ) / POWER(
+      EXTRACT(
+        EPOCH
+        FROM
+          (NOW() - published_at)
+      ) / 60,
+      2
+    )
+  ) AS activity_score
+FROM
+  (
+    SELECT
+      b.id,
+      b.blog_title,
+      b.blog_description,
+      b.blog_content,
+      b.blog_thumbnail,
+      b.blog_status,
+      b.blog_author_id,
+      b.published_at,
+      b.blog_created_at,
+      b.blog_updated_at,
+      u.id,
+      u.email,
+      u.username,
+      u.password,
+      u.name,
+      u.profile_img,
+      u.is_verified,
+      u.role,
+      u.created_at,
+      u.updated_at,
+      COUNT(DISTINCT bl.liked_by_id) AS blog_likes_count,
+      COUNT(DISTINCT bb.bookmarked_by_id) AS blog_bookmarks_count,
+      COUNT(DISTINCT bc.id) AS blog_comments_count
+    FROM
+      blogs AS b
+      INNER JOIN users AS u ON b.blog_author_id = u.id
+      LEFT JOIN blog_likes AS bl ON b.id = bl.liked_blog_id
+      LEFT JOIN blog_bookmarks AS bb ON b.id = bb.bookmarked_blog_id
+      LEFT JOIN blog_comments AS bc ON b.id = bc.blog_id
+      AND bc.parent_comment_id IS NULL
+    WHERE
+      b.id IN (
+        SELECT DISTINCT
+          (blog_id)
+        FROM
+          blog_topics
+        WHERE
+          topic_id IN (
+            SELECT
+              topic_id
+            FROM
+              topic_follows
+            WHERE
+              user_id = $1
+          )
+      )
+    GROUP BY
+      b.id,
+      u.id
+  )
+ORDER BY
+  activity_score DESC
+LIMIT
+  $2
+OFFSET
+  $3`
+
+	rows, err := s.db.Queryx(query, userId, limit, skip, BlogLikesCountWt, BlogCommentsCountWt, BlogBookmarksCountWt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+
+		var blog BlogWithMetaData
+		var activityScore float64
+
+		if err := rows.Scan(&blog.Id, &blog.BlogTitle, &blog.BlogDescription, &blog.BlogContent,
+			&blog.BlogThumbnail, &blog.BlogStatus, &blog.BlogAuthorId, &blog.PublishedAt, &blog.BlogCreatedAt, &blog.BlogUpdatedAt,
+			&blog.BlogAuthor.Id, &blog.BlogAuthor.Email, &blog.BlogAuthor.Username, &blog.BlogAuthor.Password,
+			&blog.BlogAuthor.Name, &blog.BlogAuthor.ProfileImg, &blog.BlogAuthor.IsVerified, &blog.BlogAuthor.Role,
+			&blog.BlogAuthor.CreatedAt, &blog.BlogAuthor.UpdatedAt, &blog.BlogLikesCount, &blog.BlogBookmarksCount, &blog.BlogCommentsCount, &activityScore); err != nil {
+			return nil, err
+		}
+
+		var topics []Topic
+		topicsQuery := `SELECT id,topic_name,created_at,updated_at 
+		FROM topics WHERE id IN (SELECT topic_id FROM blog_topics WHERE blog_id=$1)`
+
+		topicRows, err := s.db.Queryx(topicsQuery, blog.Id)
+		if err != nil {
+			return nil, err
+		}
+		defer topicRows.Close()
+
+		for topicRows.Next() {
+			var topic Topic
+
+			if err := topicRows.StructScan(&topic); err != nil {
+				return nil, err
+			}
+
+			topics = append(topics, topic)
+		}
+
+		blog.BlogTopics = topics
+		blogs = append(blogs, blog)
+	}
+
+	return blogs, nil
+}
+
+func (s *Storage) GetBlogsByUserFollowedTopicsCount(userId int) (int, error) {
+
+	var totalBlogsCount int
+
+	query := `SELECT COUNT(DISTINCT(blog_id)) 
+	FROM blog_topics WHERE topic_id IN (SELECT topic_id FROM topic_follows WHERE user_id=$1);
+	`
+
+	if err := s.db.QueryRowx(query, userId).Scan(&totalBlogsCount); err != nil {
 		return -1, err
 	}
 

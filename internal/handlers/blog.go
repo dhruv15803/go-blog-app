@@ -15,7 +15,8 @@ import (
 )
 
 const (
-	MAX_TOPICS_PER_BLOG = 5
+	MAX_TOPICS_PER_BLOG             = 5
+	MOST_FOLLOWED_TOPICS_FEED_LIMIT = 5
 )
 
 type CreateBlogRequest struct {
@@ -493,7 +494,6 @@ func (h *Handler) BookmarkBlogHandler(w http.ResponseWriter, r *http.Request) {
 
 		if err := writeJSON(w, Response{Success: true, Message: "bookmarked blog", BlogBookmark: *blogBookmark}, http.StatusCreated); err != nil {
 			writeJSONError(w, "internal server error", http.StatusInternalServerError)
-
 		}
 
 	} else {
@@ -573,6 +573,99 @@ func (h *Handler) GetBlogsFeedByTopicHandler(w http.ResponseWriter, r *http.Requ
 
 	noOfPages := int(math.Ceil(float64(totalBlogsCount) / float64(limit)))
 
+	type Response struct {
+		Success   bool                       `json:"success"`
+		Blogs     []storage.BlogWithMetaData `json:"blogs"`
+		NoOfPages int                        `json:"no_of_pages"`
+	}
+
+	if err := writeJSON(w, Response{Success: true, Blogs: blogs, NoOfPages: noOfPages}, http.StatusOK); err != nil {
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+	}
+}
+
+// main blogs feed for unauthenticated user's (blogs with topics being the top n'th most followed topics)
+func (h *Handler) GetBlogsFeedHandler(w http.ResponseWriter, r *http.Request) {
+	hasAuthUser := true
+	authUserId, ok := r.Context().Value(AuthUserId).(int)
+	if !ok {
+		hasAuthUser = false
+	}
+
+	var page int
+	var limit int
+	var err error
+
+	if r.URL.Query().Get("page") == "" {
+		page = 1
+	} else {
+		page, err = strconv.Atoi(r.URL.Query().Get("page"))
+		if err != nil {
+			writeJSONError(w, "invalid query param page", http.StatusBadRequest)
+			return
+		}
+	}
+	if r.URL.Query().Get("limit") == "" {
+		limit = 10
+	} else {
+		limit, err = strconv.Atoi(r.URL.Query().Get("limit"))
+		if err != nil {
+			writeJSONError(w, "invalid query param limit", http.StatusBadRequest)
+			return
+		}
+	}
+
+	skip := page*limit - limit
+
+	var blogs []storage.BlogWithMetaData
+	var totalBlogsCount int
+
+	if hasAuthUser {
+
+		authUser, err := h.storage.GetUserById(authUserId)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeJSONError(w, "user does not exist", http.StatusBadRequest)
+				return
+			} else {
+				writeJSONError(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+		}
+
+		//	get blogs for the feed consisting of blogs where topics of those blogs are followed by user
+
+		blogs, err = h.storage.GetBlogsByUserFollowedTopics(authUser.Id, skip, limit)
+		if err != nil {
+			log.Printf("failed to get blogs by user followed topics: %v\n", err)
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		totalBlogsCount, err = h.storage.GetBlogsByUserFollowedTopicsCount(authUser.Id)
+		if err != nil {
+			log.Printf("failed to get blogs count by user followed topics: %v\n", err)
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	} else {
+		blogs, err = h.storage.GetBlogsByTopNFollowedTopics(MOST_FOLLOWED_TOPICS_FEED_LIMIT, skip, limit)
+		if err != nil {
+			log.Printf("failed to get blogs with top topics: %v\n", err)
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		//	get total blogs count that have these top n followed topics
+		totalBlogsCount, err = h.storage.GetBlogsByTopNFollowedTopicsCount(MOST_FOLLOWED_TOPICS_FEED_LIMIT)
+		if err != nil {
+			log.Printf("failed to get blogs count by top topics: %v\n", err)
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	noOfPages := int(math.Ceil(float64(totalBlogsCount) / float64(limit)))
 	type Response struct {
 		Success   bool                       `json:"success"`
 		Blogs     []storage.BlogWithMetaData `json:"blogs"`

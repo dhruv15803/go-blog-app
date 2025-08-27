@@ -50,6 +50,7 @@ func (s *server) mount() *chi.Mux {
 			})
 			//	get blog posts feed for a topic handler - unauthenticated
 			r.Get("/{topicId}/blogs", s.handler.GetBlogsFeedByTopicHandler)
+			r.With(s.handler.OptionalAuthMiddleware).Get("/blogs/feed", s.handler.GetBlogsFeedHandler)
 		})
 
 		r.Route("/blog-comment", func(r chi.Router) {
@@ -60,14 +61,18 @@ func (s *server) mount() *chi.Mux {
 				r.Put("/{blogCommentId}", s.handler.UpdateBlogCommentHandler)
 				r.Post("/{blogCommentId}/like", s.handler.LikeBlogCommentHandler)
 			})
+
 			r.Get("/{blogId}/blog-comments", s.handler.GetBlogCommentsHandler)
 			r.Get("/{blogCommentId}/comments", s.handler.GetBlogCommentCommentsHandler)
+
 		})
 
 		r.Route("/topic", func(r chi.Router) {
-			//	add , delete and edit blog topics (admin routes)
+
 			r.Get("/topics", s.handler.GetTopicsHandler)
+
 			r.Group(func(r chi.Router) {
+				//	add , delete and edit blog topics (admin routes)
 				r.Use(s.handler.AuthMiddleware)
 				r.Use(s.handler.AdminAuthMiddleware)
 				r.Post("/", s.handler.CreateTopicHandler)

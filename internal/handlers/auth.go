@@ -397,6 +397,60 @@ func (h *Handler) AdminAuthMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func (h *Handler) OptionalAuthMiddleware(next http.Handler) http.Handler {
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		cookie, err := r.Cookie("auth_token")
+		if err != nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		tokenStr := cookie.Value
+
+		token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+			}
+
+			return JWT_SECRET, nil
+		})
+		if err != nil {
+			log.Printf("failed to parse token string with secret: %v\n", err)
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+
+			exp, ok := claims["exp"].(float64)
+			if !ok {
+				log.Printf("failed to parse expiration in float64")
+				writeJSONError(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+
+			if time.Now().Unix() > int64(exp) {
+				//	token expired (not authenticated)
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			userIdFloat := claims["sub"].(float64)
+			userId := int(userIdFloat)
+
+			ctx := context.WithValue(r.Context(), AuthUserId, userId)
+			r = r.WithContext(ctx)
+			next.ServeHTTP(w, r)
+		} else {
+			log.Println("invalid token")
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	})
+}
+
 func isPasswordStrong(password string) bool {
 	//	strong password characteristics:
 	//	1] minimum length = 6
