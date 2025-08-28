@@ -23,6 +23,7 @@ A RESTful API service built with Go and PostgreSQL for a blogging platform with 
 - User registration and authentication with email activation
 - JWT-based authentication system
 - Blog post creation, management, and status updates
+- **Intelligent blog feed algorithm** with personalized content ranking
 - Blog liking and bookmarking functionality
 - Hierarchical commenting system with nested replies
 - Topic-based blog organization and following
@@ -127,7 +128,7 @@ GET  /auth/user               # Get authenticated user info (requires auth)
 
 ### Blog Endpoints
 ```
-GET    /blog/blogs/feed                    # Get paginated blog feed (optional auth)
+GET    /blog/blogs/feed                    # Get personalized blog feed (optional auth)
 GET    /blog/{topicId}/blogs               # Get blogs by topic (public)
 POST   /blog/                              # Create a new blog post (requires auth)
 DELETE /blog/{blogId}                      # Delete a blog post (requires auth)
@@ -135,6 +136,29 @@ PATCH  /blog/{blogId}/status               # Update blog status (requires auth)
 POST   /blog/{blogId}/like                 # Like/unlike a blog post (requires auth)
 POST   /blog/{blogId}/bookmark             # Bookmark/unbookmark a blog (requires auth)
 ```
+
+#### Blog Feed Algorithm
+The `/blog/blogs/feed` endpoint implements an intelligent content ranking system:
+
+**For Authenticated Users:**
+- Fetches blogs from topics the user follows
+- Ranks content using activity score algorithm
+- Returns paginated, personalized feed
+
+**For Unauthenticated Users:**
+- Fetches blogs from the top 5 most-followed topics
+- Applies same activity ranking algorithm
+- Returns paginated general feed
+
+**Activity Score Formula:**
+```
+activity_score = (0.3 × likes + 0.5 × comments + 0.2 × bookmarks) / (time_since_creation_minutes)²
+```
+
+This algorithm prioritizes:
+- Recent content (time decay factor)
+- High engagement (comments weighted highest)
+- Community interaction (likes and bookmarks)
 
 ### Blog Comment Endpoints
 ```
