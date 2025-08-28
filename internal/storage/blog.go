@@ -549,7 +549,7 @@ FROM
                   $1
               )
           )
-      )
+      ) AND b.blog_status = 'published'
     GROUP BY b.id, u.id
   )
 ORDER BY activity_score DESC
@@ -603,7 +603,7 @@ func (s *Storage) GetBlogsByTopNFollowedTopicsCount(n int) (int, error) {
 
 	var totalBlogsCount int
 
-	query := `SELECT COUNT(DISTINCT(blog_id))
+	query := `SELECT COUNT(id) FROM blogs WHERE id IN (SELECT DISTINCT(blog_id)
 	FROM  blog_topics WHERE topic_id IN (
     	SELECT
       		topic_id
@@ -620,7 +620,7 @@ func (s *Storage) GetBlogsByTopNFollowedTopicsCount(n int) (int, error) {
         LIMIT
           $1
       )
-  )
+  )) AND blog_status = 'published'
 `
 	if err := s.db.QueryRowx(query, n).Scan(&totalBlogsCount); err != nil {
 		return -1, err
@@ -695,7 +695,7 @@ FROM
             WHERE
               user_id = $1
           )
-      )
+      ) AND b.blog_status = 'published'
     GROUP BY
       b.id,
       u.id
@@ -757,8 +757,8 @@ func (s *Storage) GetBlogsByUserFollowedTopicsCount(userId int) (int, error) {
 
 	var totalBlogsCount int
 
-	query := `SELECT COUNT(DISTINCT(blog_id)) 
-	FROM blog_topics WHERE topic_id IN (SELECT topic_id FROM topic_follows WHERE user_id=$1);
+	query := `SELECT COUNT(id) FROM blogs WHERE id IN (SELECT DISTINCT(blog_id)
+	FROM blog_topics WHERE topic_id IN (SELECT topic_id FROM topic_follows WHERE user_id=$1)) AND blog_status='published';
 	`
 
 	if err := s.db.QueryRowx(query, userId).Scan(&totalBlogsCount); err != nil {
