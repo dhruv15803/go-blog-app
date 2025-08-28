@@ -64,7 +64,6 @@ func (s *server) mount() *chi.Mux {
 
 			r.Get("/{blogId}/blog-comments", s.handler.GetBlogCommentsHandler)
 			r.Get("/{blogCommentId}/comments", s.handler.GetBlogCommentCommentsHandler)
-
 		})
 
 		r.Route("/topic", func(r chi.Router) {

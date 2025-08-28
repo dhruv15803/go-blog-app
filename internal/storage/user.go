@@ -155,3 +155,17 @@ FROM users WHERE id=$1`
 
 	return &user, nil
 }
+
+func (s *Storage) CreateVerifiedUser(email string, password string) (*User, error) {
+
+	var user User
+
+	query := `INSERT INTO users(email,password,is_verified) VALUES($1,$2,true) RETURNING 
+	id,email,username,password,name,profile_img,is_verified,role,created_at,updated_at`
+
+	if err := s.db.QueryRowx(query, email, password).StructScan(&user); err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
