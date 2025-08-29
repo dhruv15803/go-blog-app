@@ -24,11 +24,12 @@ A RESTful API service built with Go and PostgreSQL for a blogging platform with 
 - JWT-based authentication system
 - Blog post creation, management, and status updates
 - **Intelligent blog feed algorithm** with personalized content ranking
+- **Asynchronous email processing** with Redis-based background workers
 - Blog liking and bookmarking functionality
 - Hierarchical commenting system with nested replies
 - Topic-based blog organization and following
 - Admin-protected routes for topic management
-- Email notifications via SMTP
+- Email notifications via SMTP with retry logic and dead letter queue
 - Health check endpoints
 - Middleware for authentication and authorization
 - Structured logging with Chi router
@@ -39,6 +40,7 @@ A RESTful API service built with Go and PostgreSQL for a blogging platform with 
 
 - Go 1.21 or higher
 - PostgreSQL 13 or higher
+- Redis 6 or higher (for background job processing)
 - Git
 
 ## Installation
@@ -86,22 +88,47 @@ POSTGRES_DB_CONN=postgres://blog_user:your_password@localhost:5432/blog_db?sslmo
 
 ## Running the Service
 
+## Running the Service
+
+### Prerequisites Setup
+
+1. **Start Redis** (using Docker):
+```bash
+docker run -d -p 6379:6379 --name blog-redis redis:alpine
+```
+
+2. **Start PostgreSQL** (using Docker or local installation):
+```bash
+docker run -d -p 5432:5432 --name blog-postgres -e POSTGRES_DB=blog_db -e POSTGRES_USER=blog_user -e POSTGRES_PASSWORD=your_password postgres:13
+```
+
 ### Development Mode
 
+1. **Start the API server:**
 ```bash
 go run cmd/api/main.go cmd/api/api.go cmd/api/db.go
 ```
 
-### Production Mode
-
-1. Build the binary:
+2. **Start the background email worker** (in a separate terminal):
 ```bash
-go build -o bin/blog-api cmd/api/main.go cmd/api/api.go cmd/api/db.go
+go run cmd/emailWorker/main.go cmd/emailWorker/redis.go
 ```
 
-2. Run the binary:
+### Production Mode
+
+1. **Build both services:**
 ```bash
+go build -o bin/blog-api cmd/api/main.go cmd/api/api.go cmd/api/db.go
+go build -o bin/email-worker cmd/emailWorker/main.go cmd/emailWorker/redis.go
+```
+
+2. **Run both services:**
+```bash
+# Terminal 1 - API Server
 ./bin/blog-api
+
+# Terminal 2 - Email Worker
+./bin/email-worker
 ```
 
 The service will start on the port specified in your configuration (default: 8080).
@@ -159,6 +186,44 @@ This algorithm prioritizes:
 - Recent content (time decay factor)
 - High engagement (comments weighted highest)
 - Community interaction (likes and bookmarks)
+
+## Background Email Processing
+
+The service implements asynchronous email processing using Redis queues for improved performance and reliability.
+
+### Architecture Overview
+
+```
+POST /register → API Server → PostgreSQL (user data)
+                     ↓
+                Redis Queue ← JSON email data  
+                     ↓
+             Background Worker → SMTP Email Service
+```
+
+### How It Works
+
+1. **User Registration**: API server immediately saves user to database and returns response
+2. **Queue Email Job**: Email data (recipient, subject, activation URL) is pushed to Redis queue
+3. **Background Processing**: Separate worker process continuously polls Redis queue
+4. **Reliable Delivery**: Worker implements retry logic (3 attempts) and dead letter queue for failed emails
+5. **Template-Based Emails**: Uses HTML templates for professional email formatting
+
+### Key Features
+
+- **Non-blocking registration**: Users get immediate response while email sends in background
+- **Fault tolerance**: Failed emails are retried up to 3 times before moving to dead letter queue
+- **Scalable design**: Multiple workers can process the same queue for higher throughput
+- **Monitoring ready**: Failed jobs are preserved in dead letter queue for analysis
+
+### Worker Operations
+
+```bash
+# Start the background email worker
+go run cmd/emailWorker/main.go cmd/emailWorker/redis.go
+```
+
+The worker uses Redis `BRPop` for efficient blocking operations and JSON serialization for structured job data.
 
 ### Blog Comment Endpoints
 ```
@@ -232,8 +297,11 @@ For detailed API documentation, visit `/swagger/index.html` when running the ser
 │   │   ├── api.go            # Server setup and route definitions
 │   │   ├── db.go             # Database connection configuration  
 │   │   └── main.go           # Application entry point with config loading
-│   └── createUser/
-│       └── main.go           # User creation utility
+│   ├── createUser/
+│   │   └── main.go           # User creation utility
+│   └── emailWorker/
+│       ├── main.go           # Background email worker
+│       └── redis.go          # Redis connection configuration
 ├── internal/
 │   ├── handlers/             # HTTP request handlers
 │   ├── mailer/               # Email service functionality
@@ -241,7 +309,8 @@ For detailed API documentation, visit `/swagger/index.html` when running the ser
 ├── migrations/               # Database migration files
 ├── scripts/
 │   └── user.go              # User-related scripts
-├── templates/                # Email/HTML templates
+├── templates/
+│   └── verification.html    # Email templates
 ├── utils/                    # Utility functions
 ├── .env                      # Environment variables (not committed)
 ├── .gitignore               # Git ignore rules
@@ -342,6 +411,8 @@ docker-compose up -d
 |----------|-------------|---------|----------|
 | `PORT` | Server port | | Yes |
 | `POSTGRES_DB_CONN` | PostgreSQL connection string | | Yes |
+| `REDIS_ADDR` | Redis server address | | Yes |
+| `REDIS_PASSWORD` | Redis password | | Yes |
 | `MAILER_HOST` | SMTP server host | | Yes |
 | `MAILER_PORT` | SMTP server port | | Yes |
 | `MAILER_USERNAME` | SMTP username | | Yes |
@@ -353,7 +424,9 @@ docker-compose up -d
 ### Example .env file:
 ```env
 PORT=8080
-POSTGRES_DB_CONN=postgres://username:password@localhost:5432/blog_db?sslmode=disable
+POSTGRES_DB_CONN=postgres://blog_user:password@localhost:5432/blog_db?sslmode=disable
+REDIS_ADDR=localhost:6379
+REDIS_PASSWORD=
 MAILER_HOST=smtp.gmail.com
 MAILER_PORT=587
 MAILER_USERNAME=your-email@gmail.com
