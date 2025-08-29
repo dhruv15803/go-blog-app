@@ -100,9 +100,9 @@ func (h *Handler) RegisterUserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type VerificationMailData struct {
-		Subject       string
-		Email         string
-		ActivationUrl string
+		Subject       string `json:"subject"`
+		Email         string `json:"email"`
+		ActivationUrl string `json:"activation_url"`
 	}
 	verificationMailData := VerificationMailData{
 		Subject:       "Verify your account",
@@ -110,21 +110,16 @@ func (h *Handler) RegisterUserHandler(w http.ResponseWriter, r *http.Request) {
 		ActivationUrl: fmt.Sprintf("%s/activate-account/%s", h.clientUrl, plainTextToken),
 	}
 
-	//	send verification mail to user
-	maxRetries := 3
-	retryCount := 0
-	isMailSent := false
-
-	for retryCount < maxRetries {
-		if err := h.mailer.SendMailFromTemplate(verificationMailData.Email, verificationMailData.Subject, "./templates/verification.html", verificationMailData); err != nil {
-			retryCount++
-			continue
-		}
-		isMailSent = true
-		break
+	emailDataJsonBytes, err := json.Marshal(verificationMailData)
+	if err != nil {
+		log.Printf("failed to marshal verification mail data: %v\n", err)
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
 	}
-	if !isMailSent {
-		log.Printf("failed to send verification mail: %v\n", err)
+
+	// push this job(email job) onto the emails job queue (to be processed by background worker)
+	if err := h.redisClient.LPush(context.Background(), "emails", string(emailDataJsonBytes)).Err(); err != nil {
+		log.Printf("failed to push email data to redis: %v\n", err)
 		writeJSONError(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -135,7 +130,7 @@ func (h *Handler) RegisterUserHandler(w http.ResponseWriter, r *http.Request) {
 		User    storage.User `json:"user"`
 	}
 
-	if err := writeJSON(w, Response{Success: true, Message: "registered user successfully", User: *user}, http.StatusCreated); err != nil {
+	if err := writeJSON(w, Response{Success: true, Message: "registered user successfully, verification mail will be sent shortly", User: *user}, http.StatusCreated); err != nil {
 		writeJSONError(w, "internal server error", http.StatusInternalServerError)
 	}
 }

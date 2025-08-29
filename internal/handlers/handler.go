@@ -3,20 +3,23 @@ package handlers
 import (
 	"github.com/dhruv15803/go-blog-app/internal/mailer"
 	"github.com/dhruv15803/go-blog-app/internal/storage"
+	"github.com/redis/go-redis/v9"
 	"net/http"
 )
 
 type Handler struct {
-	storage   *storage.Storage
-	mailer    *mailer.Mailer
-	clientUrl string
+	storage     *storage.Storage
+	mailer      *mailer.Mailer
+	redisClient *redis.Client
+	clientUrl   string
 }
 
-func NewHandler(storage *storage.Storage, mailer *mailer.Mailer, clientUrl string) *Handler {
+func NewHandler(storage *storage.Storage, mailer *mailer.Mailer, redisClient *redis.Client, clientUrl string) *Handler {
 	return &Handler{
-		storage:   storage,
-		mailer:    mailer,
-		clientUrl: clientUrl,
+		storage:     storage,
+		mailer:      mailer,
+		redisClient: redisClient,
+		clientUrl:   clientUrl,
 	}
 }
 

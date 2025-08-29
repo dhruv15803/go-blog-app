@@ -20,6 +20,11 @@ type dbConfig struct {
 	connMaxIdleTime time.Duration
 }
 
+type redisConfig struct {
+	addr     string //"HOSTNAME:PORT"
+	password string
+}
+
 type mailerConfig struct {
 	host     string
 	port     int
@@ -34,6 +39,7 @@ type config struct {
 	clientUrl           string
 	dbConfig            dbConfig
 	mailerConfig        mailerConfig
+	redisConfig         redisConfig
 }
 
 func loadConfig() (*config, error) {
@@ -42,6 +48,8 @@ func loadConfig() (*config, error) {
 
 	port := os.Getenv("PORT")
 	dbConnStr := os.Getenv("POSTGRES_DB_CONN")
+	redisAddr := os.Getenv("REDIS_ADDR")
+	redisPassword := os.Getenv("REDIS_PASSWORD")
 	mailerHost := os.Getenv("MAILER_HOST")
 	mailerPort, err := strconv.ParseInt(os.Getenv("MAILER_PORT"), 10, 64)
 	mailerUsername := os.Getenv("MAILER_USERNAME")
@@ -52,6 +60,9 @@ func loadConfig() (*config, error) {
 	}
 	if port == "" || dbConnStr == "" {
 		return nil, errors.New("PORT or POSTGRES_DB_CONN not set")
+	}
+	if redisAddr == "" || redisPassword == "" {
+		return nil, errors.New("REDIS_ADDR or REDIS_PASSWORD not set")
 	}
 
 	cfg := &config{
@@ -72,6 +83,10 @@ func loadConfig() (*config, error) {
 			username: mailerUsername,
 			password: mailerPassword,
 		},
+		redisConfig: redisConfig{
+			addr:     redisAddr,
+			password: redisPassword,
+		},
 	}
 
 	return cfg, nil
@@ -91,11 +106,17 @@ func main() {
 	}
 	defer db.Close()
 
+	redisConn := newRedisConn(cfg.redisConfig.addr, cfg.redisConfig.password)
+	redisClient, err := redisConn.createRedisInstance()
+	if err != nil {
+		log.Fatalf("Error creating redis client: %v\n", err)
+	}
+
 	mailer := mailer.NewMailer(cfg.mailerConfig.host, cfg.mailerConfig.port, cfg.mailerConfig.username, cfg.mailerConfig.password)
 
 	//layers
 	storage := storage.NewStorage(db)
-	handler := handlers.NewHandler(storage, mailer, cfg.clientUrl)
+	handler := handlers.NewHandler(storage, mailer, redisClient, cfg.clientUrl)
 
 	server := newServer(cfg.addr, cfg.readRequestTimeout, cfg.writeRequestTimeout, handler)
 
