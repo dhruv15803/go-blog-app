@@ -118,9 +118,21 @@ func (h *Handler) RegisterUserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// push this job(email job) onto the emails job queue (to be processed by background worker)
-	if err := h.redisClient.LPush(context.Background(), "emails", string(emailDataJsonBytes)).Err(); err != nil {
-		log.Printf("failed to push email data to redis: %v\n", err)
-		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+	maxRedisQueueRetries := 3
+	isEmailDataPushed := false
+
+	for i := 0; i < maxRedisQueueRetries; i++ {
+		if err := h.redisClient.LPush(context.Background(), "emails", string(emailDataJsonBytes)).Err(); err != nil {
+			log.Printf("failed to push email data to redis queue, attempt:%d\n", i+1)
+			continue
+		}
+		isEmailDataPushed = true
+		break
+	}
+
+	if !isEmailDataPushed {
+		log.Printf("failed to push email job to redis queue: %v\n", err)
+		writeJSONError(w, "server failed to send verification mail, please contact support", http.StatusInternalServerError)
 		return
 	}
 

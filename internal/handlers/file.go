@@ -60,6 +60,7 @@ func (h *Handler) UploadImageFileHandler(w http.ResponseWriter, r *http.Request)
 	isUploadedFileToCloudinary := false
 	var uploadFileToCloudinaryErr error
 	var uploadResult *uploader.UploadResult
+
 	for i := 0; i < MAX_IMAGE_UPLOAD_RETRIES; i++ {
 
 		newUploadedFile.Seek(0, 0)
@@ -69,6 +70,7 @@ func (h *Handler) UploadImageFileHandler(w http.ResponseWriter, r *http.Request)
 			Overwrite:      api.Bool(true),
 			UniqueFilename: api.Bool(false),
 		})
+
 		if err != nil {
 			uploadFileToCloudinaryErr = err
 			log.Printf("failed to upload file to cloudinary, attempt:%d", i+1)
@@ -77,7 +79,6 @@ func (h *Handler) UploadImageFileHandler(w http.ResponseWriter, r *http.Request)
 
 		isUploadedFileToCloudinary = true
 		break
-
 	}
 
 	if !isUploadedFileToCloudinary {
@@ -103,3 +104,7 @@ func (h *Handler) UploadImageFileHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 }
+
+//30/08/25
+//1/09/25
+//2/09/25
