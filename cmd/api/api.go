@@ -84,6 +84,10 @@ func (s *server) mount() *chi.Mux {
 				r.Post("/{topicId}/follow", s.handler.FollowTopicHandler)
 			})
 		})
+
+		r.Route("/file", func(r chi.Router) {
+			r.Post("/upload", s.handler.UploadImageFileHandler)
+		})
 	})
 
 	return r

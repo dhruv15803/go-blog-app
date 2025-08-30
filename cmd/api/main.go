@@ -32,6 +32,10 @@ type mailerConfig struct {
 	password string
 }
 
+type cloudinaryConfig struct {
+	cloudinaryUrl string
+}
+
 type config struct {
 	addr                string
 	readRequestTimeout  time.Duration
@@ -40,6 +44,7 @@ type config struct {
 	dbConfig            dbConfig
 	mailerConfig        mailerConfig
 	redisConfig         redisConfig
+	cloudinaryConfig    cloudinaryConfig
 }
 
 func loadConfig() (*config, error) {
@@ -55,6 +60,7 @@ func loadConfig() (*config, error) {
 	mailerUsername := os.Getenv("MAILER_USERNAME")
 	mailerPassword := os.Getenv("MAILER_PASSWORD")
 	clientUrl := os.Getenv("CLIENT_URL")
+	cloudinaryUrl := os.Getenv("CLOUDINARY_URL")
 	if err != nil {
 		return nil, err
 	}
@@ -63,6 +69,9 @@ func loadConfig() (*config, error) {
 	}
 	if redisAddr == "" || redisPassword == "" {
 		return nil, errors.New("REDIS_ADDR or REDIS_PASSWORD not set")
+	}
+	if cloudinaryUrl == "" {
+		return nil, errors.New("CLOUDINARY_URL not set")
 	}
 
 	cfg := &config{
@@ -86,6 +95,9 @@ func loadConfig() (*config, error) {
 		redisConfig: redisConfig{
 			addr:     redisAddr,
 			password: redisPassword,
+		},
+		cloudinaryConfig: cloudinaryConfig{
+			cloudinaryUrl: cloudinaryUrl,
 		},
 	}
 
@@ -112,11 +124,16 @@ func main() {
 		log.Fatalf("Error creating redis client: %v\n", err)
 	}
 
+	cld, err := newCloudinaryApi(cfg.cloudinaryConfig.cloudinaryUrl).createInstance()
+	if err != nil {
+		log.Fatalf("Error creating cloudinary client: %v\n", err)
+	}
+
 	mailer := mailer.NewMailer(cfg.mailerConfig.host, cfg.mailerConfig.port, cfg.mailerConfig.username, cfg.mailerConfig.password)
 
 	//layers
 	storage := storage.NewStorage(db)
-	handler := handlers.NewHandler(storage, mailer, redisClient, cfg.clientUrl)
+	handler := handlers.NewHandler(storage, mailer, redisClient, cld, cfg.clientUrl)
 
 	server := newServer(cfg.addr, cfg.readRequestTimeout, cfg.writeRequestTimeout, handler)
 
