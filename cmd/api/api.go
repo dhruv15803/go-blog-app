@@ -43,27 +43,32 @@ func (s *server) mount() *chi.Mux {
 			r.Group(func(r chi.Router) {
 				r.Use(s.handler.AuthMiddleware)
 				r.Post("/", s.handler.CreateBlogHandler)
-				r.Delete("/{blogId}", s.handler.DeleteBlogHandler)
-				r.Patch("/{blogId}/status", s.handler.UpdateBlogStatusHandler)
-				r.Post("/{blogId}/like", s.handler.LikeBlogHandler)
-				r.Post("/{blogId}/bookmark", s.handler.BookmarkBlogHandler)
 			})
+
+			r.Route("/{blogId}", func(r chi.Router) {
+				r.Group(func(r chi.Router) {
+					r.Use(s.handler.AuthMiddleware)
+					r.Delete("/", s.handler.DeleteBlogHandler)
+					r.Patch("/status", s.handler.UpdateBlogStatusHandler)
+					r.Post("/like", s.handler.LikeBlogHandler)
+					r.Post("/bookmark", s.handler.BookmarkBlogHandler)
+				})
+
+				r.Route("/blog-comment", func(r chi.Router) {
+					r.Use(s.handler.AuthMiddleware)
+					r.Post("/", s.handler.CreateBlogCommentHandler)                   // fixed
+					r.Delete("/{blogCommentId}", s.handler.DeleteBlogCommentHandler)  // fixed
+					r.Put("/{blogCommentId}", s.handler.UpdateBlogCommentHandler)     // fixed
+					r.Post("/{blogCommentId}/like", s.handler.LikeBlogCommentHandler) // fixed
+				})
+
+				r.Get("/blog-comments", s.handler.GetBlogCommentsHandler)
+				r.Get("/blog-comments/{blogCommentId}/comments", s.handler.GetBlogCommentCommentsHandler)
+			})
+
 			//	get blog posts feed for a topic handler - unauthenticated
 			r.Get("/{topicId}/blogs", s.handler.GetBlogsFeedByTopicHandler)
 			r.With(s.handler.OptionalAuthMiddleware).Get("/blogs/feed", s.handler.GetBlogsFeedHandler)
-		})
-
-		r.Route("/blog-comment", func(r chi.Router) {
-			r.Group(func(r chi.Router) {
-				r.Use(s.handler.AuthMiddleware)
-				r.Post("/", s.handler.CreateBlogCommentHandler)
-				r.Delete("/{blogCommentId}", s.handler.DeleteBlogCommentHandler)
-				r.Put("/{blogCommentId}", s.handler.UpdateBlogCommentHandler)
-				r.Post("/{blogCommentId}/like", s.handler.LikeBlogCommentHandler)
-			})
-
-			r.Get("/{blogId}/blog-comments", s.handler.GetBlogCommentsHandler)
-			r.Get("/{blogCommentId}/comments", s.handler.GetBlogCommentCommentsHandler)
 		})
 
 		r.Route("/topic", func(r chi.Router) {

@@ -15,7 +15,6 @@ import (
 
 type CreateBlogCommentRequest struct {
 	BlogComment     string `json:"blog_comment"`
-	BlogId          int    `json:"blog_id"`
 	ParentCommentId *int   `json:"parent_comment_id"`
 }
 
@@ -50,7 +49,6 @@ func (h *Handler) CreateBlogCommentHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	blogComment := strings.TrimSpace(createBlogCommentPayload.BlogComment)
-	blogId := createBlogCommentPayload.BlogId
 	parentCommentId := createBlogCommentPayload.ParentCommentId
 	isTopLevelComment := parentCommentId == nil
 
@@ -59,7 +57,13 @@ func (h *Handler) CreateBlogCommentHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	blog, err := h.storage.GetBlogById(blogId)
+	blogId, err := strconv.ParseInt(chi.URLParam(r, "blogId"), 10, 64)
+	if err != nil {
+		writeJSONError(w, "invalid request param blogId", http.StatusBadRequest)
+		return
+	}
+
+	blog, err := h.storage.GetBlogById(int(blogId))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeJSONError(w, "blog not found", http.StatusBadRequest)
@@ -149,6 +153,23 @@ func (h *Handler) LikeBlogCommentHandler(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	blogId, err := strconv.ParseInt(chi.URLParam(r, "blogId"), 10, 64)
+	if err != nil {
+		writeJSONError(w, "invalid request param blogId", http.StatusBadRequest)
+		return
+	}
+
+	blog, err := h.storage.GetBlogById(int(blogId))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "blog not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
 	blogCommentId, err := strconv.ParseInt(chi.URLParam(r, "blogCommentId"), 10, 64)
 	if err != nil {
 		writeJSONError(w, "invalid request param blogCommentId", http.StatusBadRequest)
@@ -164,6 +185,11 @@ func (h *Handler) LikeBlogCommentHandler(w http.ResponseWriter, r *http.Request)
 			writeJSONError(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
+	}
+
+	if blogComment.BlogId != blog.Id {
+		writeJSONError(w, "blog comment is not blog's comment", http.StatusBadRequest)
+		return
 	}
 
 	blogCommentLike, err := h.storage.GetBlogCommentLike(user.Id, blogComment.Id)
@@ -207,6 +233,7 @@ func (h *Handler) LikeBlogCommentHandler(w http.ResponseWriter, r *http.Request)
 	}
 }
 
+// deleting/removing a comment under a blog (the comment passed in has to be a commend of the blog (blogComment.BlogId = blog.Id)
 func (h *Handler) DeleteBlogCommentHandler(w http.ResponseWriter, r *http.Request) {
 	userId, ok := r.Context().Value(AuthUserId).(int)
 	if !ok {
@@ -218,6 +245,23 @@ func (h *Handler) DeleteBlogCommentHandler(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeJSONError(w, "user does not exist", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	blogId, err := strconv.ParseInt(chi.URLParam(r, "blogId"), 10, 64)
+	if err != nil {
+		writeJSONError(w, "invalid request param blogId", http.StatusBadRequest)
+		return
+	}
+
+	blog, err := h.storage.GetBlogById(int(blogId))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "blog not found", http.StatusBadRequest)
 			return
 		} else {
 			writeJSONError(w, "internal server error", http.StatusInternalServerError)
@@ -240,6 +284,11 @@ func (h *Handler) DeleteBlogCommentHandler(w http.ResponseWriter, r *http.Reques
 			writeJSONError(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
+	}
+
+	if blogComment.BlogId != blog.Id {
+		writeJSONError(w, "blog comment is not blog's comment", http.StatusBadRequest)
+		return
 	}
 
 	if user.Id != blogComment.CommentAuthorId {
@@ -281,6 +330,23 @@ func (h *Handler) UpdateBlogCommentHandler(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
+	blogId, err := strconv.ParseInt(chi.URLParam(r, "blogId"), 10, 64)
+	if err != nil {
+		writeJSONError(w, "invalid request param blogId", http.StatusBadRequest)
+		return
+	}
+
+	blog, err := h.storage.GetBlogById(int(blogId))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "blog not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
 	blogCommentId, err := strconv.ParseInt(chi.URLParam(r, "blogCommentId"), 10, 64)
 	if err != nil {
 		writeJSONError(w, "invalid request param blogCommentId", http.StatusBadRequest)
@@ -296,6 +362,11 @@ func (h *Handler) UpdateBlogCommentHandler(w http.ResponseWriter, r *http.Reques
 			writeJSONError(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
+	}
+
+	if blogComment.BlogId != blog.Id {
+		writeJSONError(w, "blog comment is not blog's comment", http.StatusBadRequest)
+		return
 	}
 
 	if user.Id != blogComment.CommentAuthorId {
@@ -407,6 +478,23 @@ func (h *Handler) GetBlogCommentsHandler(w http.ResponseWriter, r *http.Request)
 // get comments  for a blog comment (child comments)
 func (h *Handler) GetBlogCommentCommentsHandler(w http.ResponseWriter, r *http.Request) {
 
+	blogId, err := strconv.ParseInt(chi.URLParam(r, "blogId"), 10, 64)
+	if err != nil {
+		writeJSONError(w, "invalid request param blogId", http.StatusBadRequest)
+		return
+	}
+
+	blog, err := h.storage.GetBlogById(int(blogId))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, "blog not found", http.StatusBadRequest)
+			return
+		} else {
+			writeJSONError(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+
 	blogCommentId, err := strconv.ParseInt(chi.URLParam(r, "blogCommentId"), 10, 64)
 	if err != nil {
 		writeJSONError(w, "invalid request param blogCommentId", http.StatusBadRequest)
@@ -423,6 +511,12 @@ func (h *Handler) GetBlogCommentCommentsHandler(w http.ResponseWriter, r *http.R
 			return
 		}
 	}
+
+	if blogComment.BlogId != blog.Id {
+		writeJSONError(w, "blog comment is not blog's comment", http.StatusBadRequest)
+		return
+	}
+
 	var page int
 	var limit int
 
